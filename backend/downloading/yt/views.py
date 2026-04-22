@@ -75,11 +75,10 @@ def get_browser_cookies():
     
     profile = os.environ.get("YT_DL_BROWSER_PROFILE", "")
     
-    # Build cookies_from_browser parameter
-    # Format: browser[:profile][:keyring]
-    cookies_from_browser = browser
-    if profile:
-        cookies_from_browser += f":{profile}"
+    # Build cookies_from_browser parameter as a tuple
+    # yt-dlp expects: (browser_name, profile_path, keyring, container)
+    # We only provide browser_name and optionally profile
+    cookies_from_browser = (browser, profile) if profile else browser
     
     print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
     return cookies_from_browser
