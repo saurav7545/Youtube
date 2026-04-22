@@ -1,0 +1,49 @@
+# -----------------------------
+# Backend (Django / Python)
+# -----------------------------
+backend/venv/
+backend/downloading/db.sqlite3
+backend/downloading/staticfiles/
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Python env files
+backend/downloading/.env
+backend/downloading/.env.*
+!backend/downloading/.env.example
+
+# -----------------------------
+# Frontend (Vite / React)
+# -----------------------------
+frontend/ui/node_modules/
+frontend/ui/dist/
+frontend/ui/dist-ssr/
+
+# Frontend env files
+frontend/ui/.env
+frontend/ui/.env.*
+!frontend/ui/.env.example
+
+# Vercel local metadata
+frontend/ui/.vercel/
+
+# -----------------------------
+# Logs / temp
+# -----------------------------
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------------
+# Editor / OS junk
+# -----------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,4 @@
+Django==5.2.13
+yt-dlp>=2025.1.0
+django-cors-headers>=4.4.0
+gunicorn>=22.0.0
