@@ -122,6 +122,11 @@ def info_view(request):
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+         "cookiesfrombrowser": ("chrome",),
+
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0"
+        },
     }
 
     try:
