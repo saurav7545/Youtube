@@ -122,7 +122,7 @@ def info_view(request):
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
-         "cookiesfrombrowser": ("chrome",),
+         "cookiefile": "cookies.txt",
 
         "http_headers": {
             "User-Agent": "Mozilla/5.0"
