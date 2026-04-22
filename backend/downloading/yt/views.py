@@ -1,4 +1,5 @@
 import mimetypes
+import os
 import re
 import shutil
 import tempfile
@@ -11,6 +12,9 @@ from django.views.decorators.http import require_GET
 YOUTUBE_ID_PATTERN = re.compile(r"^[0-9A-Za-z_-]{11}$")
 DEFAULT_VIDEO_QUALITIES = ["144p", "240p", "360p", "480p", "720p", "1080p"]
 DEFAULT_AUDIO_QUALITIES = ["64 kbps", "128 kbps", "192 kbps", "320 kbps"]
+
+# Supported browsers for cookie extraction
+SUPPORTED_BROWSERS = ["chrome", "firefox", "brave", "edge", "safari", "chromium"]
 
 
 # ✅ LOAD yt-dlp
@@ -31,11 +35,54 @@ def get_cookie_path():
         print("❌ cookies.txt NOT FOUND:", original)
         return None
 
+    # Check if cookies.txt has content
+    if original.stat().st_size == 0:
+        print("⚠️ cookies.txt is empty, trying browser extraction...")
+        return None
+
     temp_dir = Path(tempfile.mkdtemp())
     temp_cookie = temp_dir / "cookies.txt"
 
     shutil.copy(original, temp_cookie)
     return str(temp_cookie)
+
+
+# ✅ BROWSER COOKIE EXTRACTION (Solves "Sign in to confirm you're not a bot")
+def get_browser_cookies():
+    """
+    Extract cookies from browser to authenticate with YouTube.
+    This solves the bot verification issue by using real browser session cookies.
+    
+    Environment variables to configure:
+    - YT_DL_BROWSER: Browser name (chrome, firefox, brave, edge, safari, chromium)
+    - YT_DL_BROWSER_PROFILE: Browser profile name (optional, defaults to default profile)
+    """
+    browser = os.environ.get("YT_DL_BROWSER", "").lower().strip()
+    
+    if not browser:
+        # Try to auto-detect browser based on platform
+        import sys
+        if sys.platform == "darwin":  # macOS
+            browser = "chrome"
+        elif sys.platform == "win32":  # Windows
+            browser = "chrome"
+        else:  # Linux
+            browser = "chrome"
+    
+    if browser not in SUPPORTED_BROWSERS:
+        print(f"⚠️ Unsupported browser: {browser}. Supported: {SUPPORTED_BROWSERS}")
+        return None
+    
+    profile = os.environ.get("YT_DL_BROWSER_PROFILE", "")
+    
+    # Build cookies_from_browser parameter
+    # Format: browser[:profile][:keyring]
+    cookies_from_browser = browser
+    if profile:
+        cookies_from_browser += f":{profile}"
+    
+    print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
+    return cookies_from_browser
 
 
 def _extract_video_id(url: str) -> str:
@@ -115,17 +162,24 @@ def info_view(request):
     if not YOUTUBE_ID_PATTERN.match(video_id):
         return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
 
+    # Try multiple authentication methods in order of preference:
+    # 1. Browser cookies (most reliable for YouTube)
+    # 2. cookies.txt file
     cookie_path = get_cookie_path()
+    browser_cookies = get_browser_cookies()
 
     opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
-        "http_headers": {"User-Agent": "Mozilla/5.0"},
+        "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
     }
 
-    if cookie_path:
+    # Prefer browser cookies for YouTube (solves bot verification)
+    if browser_cookies:
+        opts["cookiesfrombrowser"] = browser_cookies
+    elif cookie_path:
         opts["cookiefile"] = cookie_path
 
     try:
@@ -166,7 +220,11 @@ def download_view(request):
     temp_dir = Path(tempfile.mkdtemp())
     output = str(temp_dir / "%(title)s.%(ext)s")
 
+    # Try multiple authentication methods in order of preference:
+    # 1. Browser cookies (most reliable for YouTube)
+    # 2. cookies.txt file
     cookie_path = get_cookie_path()
+    browser_cookies = get_browser_cookies()
 
     opts = {
         "outtmpl": output,
@@ -175,7 +233,10 @@ def download_view(request):
         "no_warnings": True,
     }
 
-    if cookie_path:
+    # Prefer browser cookies for YouTube (solves bot verification)
+    if browser_cookies:
+        opts["cookiesfrombrowser"] = browser_cookies
+    elif cookie_path:
         opts["cookiefile"] = cookie_path
 
     try:

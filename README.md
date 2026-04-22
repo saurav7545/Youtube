@@ -1,1 +1,98 @@
 # Youtube
+
+A web application for downloading YouTube videos and audio files.
+
+## Features
+
+- Download YouTube videos in various qualities (144p to 1080p)
+- Download YouTube audio in various bitrates (64 kbps to 320 kbps)
+- Clean and modern UI
+- CORS-enabled backend
+
+## Authentication Setup (Important!)
+
+To avoid YouTube's "Sign in to confirm you're not a bot" error, you need to configure authentication.
+
+### Quick Setup (Using Browser Cookies)
+
+1. Navigate to the backend directory:
+   ```bash
+   cd backend/downloading
+   ```
+
+2. Create a `.env` file and add:
+   ```env
+   YT_DL_BROWSER=chrome
+   ```
+
+3. Make sure you're logged into YouTube in your Chrome browser.
+
+4. Start the backend server.
+
+For detailed authentication instructions, see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md).
+
+## Project Structure
+
+```
+Youtube/
+├── backend/
+│   └── downloading/
+│       ├── yt/              # Django app for YouTube downloader
+│       ├── downloading/     # Django project settings
+│       ├── manage.py        # Django management script
+│       ├── requirements.txt # Python dependencies
+│       ├── cookies.txt      # (Optional) Manual cookies file
+│       └── .env             # Environment configuration
+└── frontend/
+    └── ui/                  # React frontend (Vite)
+```
+
+## Installation
+
+### Backend
+
+```bash
+cd backend/downloading
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env and configure YT_DL_BROWSER
+python manage.py runserver
+```
+
+### Frontend
+
+```bash
+cd frontend/ui
+npm install
+cp .env.example .env.local
+# Edit .env.local if needed
+npm run dev
+```
+
+## Environment Variables
+
+### Backend (.env)
+
+- `DJANGO_DEBUG` - Debug mode
+- `DJANGO_ALLOWED_HOSTS` - Allowed hosts
+- `CORS_ALLOWED_ORIGINS` - CORS origins
+- `YT_DL_BROWSER` - Browser for cookie extraction (chrome, firefox, brave, edge, safari, chromium)
+- `YT_DL_BROWSER_PROFILE` - (Optional) Browser profile name
+
+### Frontend (.env.local)
+
+- Configure API endpoint URL if needed
+
+## Troubleshooting
+
+If you encounter "Sign in to confirm you're not a bot" error:
+
+1. Set `YT_DL_BROWSER=chrome` in your backend `.env` file
+2. Make sure you're logged into YouTube in your browser
+3. Restart the backend server
+
+See [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md) for more details.
+
+## License
+
+MIT
