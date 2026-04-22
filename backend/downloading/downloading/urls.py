@@ -34,6 +34,8 @@ def root_view(_request):
 
 urlpatterns = [
     path('', root_view),
+    path('api', root_view),
+    path('api/', root_view),
     path('admin/', admin.site.urls),
     path('api/yt/', include('yt.urls')),
 ]
