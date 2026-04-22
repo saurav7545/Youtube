@@ -34,7 +34,10 @@ def _env_list(name: str, default: str = "") -> list[str]:
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 
-DJANGO_ALLOWED_HOSTS=youtube-tndx.onrender.com,.onrender.com
+ALLOWED_HOSTS = _env_list(
+    "DJANGO_ALLOWED_HOSTS",
+    "127.0.0.1,localhost,testserver,.vercel.app,.onrender.com",
+)
 
 
 # Application definition
