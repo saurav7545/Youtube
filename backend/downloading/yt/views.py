@@ -13,6 +13,7 @@ DEFAULT_VIDEO_QUALITIES = ["144p", "240p", "360p", "480p", "720p", "1080p"]
 DEFAULT_AUDIO_QUALITIES = ["64 kbps", "128 kbps", "192 kbps", "320 kbps"]
 
 
+# ✅ LOAD yt-dlp
 def _load_yt_dlp():
     try:
         import yt_dlp
@@ -21,15 +22,26 @@ def _load_yt_dlp():
     return yt_dlp
 
 
+# ✅ COOKIE PATH FIX (IMPORTANT)
+def get_cookie_path():
+    base_dir = Path(__file__).resolve().parent
+    original = base_dir / "cookies.txt"
+
+    if not original.exists():
+        print("❌ cookies.txt NOT FOUND:", original)
+        return None
+
+    temp_dir = Path(tempfile.mkdtemp())
+    temp_cookie = temp_dir / "cookies.txt"
+
+    shutil.copy(original, temp_cookie)
+    return str(temp_cookie)
+
+
 def _extract_video_id(url: str) -> str:
     text = (url or "").strip()
-    if not text:
-        return ""
-
     match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11})(?:[?&]|$)", text)
-    if match:
-        return match.group(1)
-    return ""
+    return match.group(1) if match else ""
 
 
 def _parse_quality_value(quality: str, download_type: str):
@@ -37,187 +49,147 @@ def _parse_quality_value(quality: str, download_type: str):
         match = re.match(r"^(\d{3,4})p$", quality)
     else:
         match = re.match(r"^(\d{2,3})\s*kbps$", quality.lower())
-
-    if not match:
-        return None
-    return int(match.group(1))
+    return int(match.group(1)) if match else None
 
 
-def _selector_for(download_type: str, quality_value: int | None) -> str:
+def _selector_for(download_type: str, quality_value):
     if download_type == "audio":
-        if quality_value is None:
-            return "bestaudio/best"
-        return f"bestaudio[abr<={quality_value}]/bestaudio/best"
+        return (
+            f"bestaudio[abr<={quality_value}]/bestaudio/best"
+            if quality_value else "bestaudio/best"
+        )
 
     if quality_value is None:
         return "bestvideo+bestaudio/best"
 
     return (
-        f"bestvideo[height<={quality_value}][ext=mp4]+bestaudio[ext=m4a]/"
-        f"best[height<={quality_value}][ext=mp4]/best[height<={quality_value}]"
+        f"bestvideo[height<={quality_value}]+bestaudio/"
+        f"best[height<={quality_value}]"
     )
 
 
 def _collect_qualities(info: dict):
     formats = info.get("formats", [])
 
-    video_vals = sorted(
-        {
-            int(fmt.get("height"))
-            for fmt in formats
-            if fmt.get("vcodec") not in (None, "none") and fmt.get("height")
-        }
-    )
-    audio_vals = sorted(
-        {
-            int(round(float(fmt.get("abr"))))
-            for fmt in formats
-            if fmt.get("acodec") not in (None, "none") and fmt.get("abr")
-        }
-    )
+    video_vals = sorted({
+        int(f["height"]) for f in formats
+        if f.get("vcodec") != "none" and f.get("height")
+    })
 
-    video_qualities = [f"{value}p" for value in video_vals] or DEFAULT_VIDEO_QUALITIES
-    audio_qualities = (
-        [f"{value} kbps" for value in audio_vals] or DEFAULT_AUDIO_QUALITIES
+    audio_vals = sorted({
+        int(round(float(f["abr"]))) for f in formats
+        if f.get("acodec") != "none" and f.get("abr")
+    })
+
+    return (
+        [f"{v}p" for v in video_vals] or DEFAULT_VIDEO_QUALITIES,
+        [f"{a} kbps" for a in audio_vals] or DEFAULT_AUDIO_QUALITIES,
     )
-    return video_qualities, audio_qualities
 
 
 def _stream_file_and_cleanup(file_path: Path, temp_dir: Path):
     try:
-        with file_path.open("rb") as file_obj:
-            while True:
-                chunk = file_obj.read(8192)
-                if not chunk:
-                    break
+        with file_path.open("rb") as f:
+            while chunk := f.read(8192):
                 yield chunk
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+# ✅ HEALTH API
 @require_GET
-def health_view(_request):
-    return JsonResponse({"ok": True, "service": "yt"})
+def health_view(_):
+    return JsonResponse({"ok": True})
 
 
+# ✅ INFO API
 @require_GET
 def info_view(request):
     yt_dlp = _load_yt_dlp()
-    if yt_dlp is None:
-        return JsonResponse(
-            {"error": "yt-dlp is not installed on backend."},
-            status=500,
-        )
+    if not yt_dlp:
+        return JsonResponse({"error": "yt-dlp not installed"}, status=500)
 
     url = request.GET.get("url", "").strip()
     video_id = _extract_video_id(url)
+
     if not YOUTUBE_ID_PATTERN.match(video_id):
-        return JsonResponse(
-            {"error": "Invalid YouTube URL. Please provide a valid link."},
-            status=400,
-        )
+        return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
+
+    cookie_path = get_cookie_path()
 
     opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
-        "cookiefile": get_cookie_path(),
-
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0"
-        },
+        "http_headers": {"User-Agent": "Mozilla/5.0"},
     }
+
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
-    except Exception as exc:
-        return JsonResponse(
-            {"error": f"Unable to fetch video details: {exc}"},
-            status=400,
-        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
 
-    video_qualities, audio_qualities = _collect_qualities(info)
-    thumbnail = info.get("thumbnail") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+    vq, aq = _collect_qualities(info)
 
-    return JsonResponse(
-        {
-            "videoId": video_id,
-            "title": info.get("title") or "YouTube Video",
-            "thumbnail": thumbnail,
-            "videoQualities": video_qualities,
-            "audioQualities": audio_qualities,
-        }
-    )
+    return JsonResponse({
+        "videoId": video_id,
+        "title": info.get("title"),
+        "thumbnail": info.get("thumbnail"),
+        "videoQualities": vq,
+        "audioQualities": aq,
+    })
 
 
+# ✅ DOWNLOAD API
 @require_GET
 def download_view(request):
     yt_dlp = _load_yt_dlp()
-    if yt_dlp is None:
-        return JsonResponse(
-            {"error": "yt-dlp is not installed on backend."},
-            status=500,
-        )
+    if not yt_dlp:
+        return JsonResponse({"error": "yt-dlp not installed"}, status=500)
 
     url = request.GET.get("url", "").strip()
-    download_type = request.GET.get("type", "video").strip().lower()
-    quality = request.GET.get("quality", "").strip()
-
-    if download_type not in {"video", "audio"}:
-        return JsonResponse(
-            {"error": "Invalid download type. Use 'video' or 'audio'."},
-            status=400,
-        )
+    dtype = request.GET.get("type", "video")
+    quality = request.GET.get("quality", "")
 
     video_id = _extract_video_id(url)
     if not YOUTUBE_ID_PATTERN.match(video_id):
-        return JsonResponse(
-            {"error": "Invalid YouTube URL. Please provide a valid link."},
-            status=400,
-        )
+        return JsonResponse({"error": "Invalid URL"}, status=400)
 
-    quality_value = _parse_quality_value(quality, download_type)
-    format_selector = _selector_for(download_type, quality_value)
+    qval = _parse_quality_value(quality, dtype)
+    selector = _selector_for(dtype, qval)
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="yt_dl_"))
-    output_template = str(temp_dir / "%(title).120s-%(id)s.%(ext)s")
+    temp_dir = Path(tempfile.mkdtemp())
+    output = str(temp_dir / "%(title)s.%(ext)s")
+
+    cookie_path = get_cookie_path()
 
     opts = {
+        "outtmpl": output,
+        "format": selector,
         "quiet": True,
         "no_warnings": True,
-        "noplaylist": True,
-        "outtmpl": output_template,
-        "format": format_selector,
     }
+
+    if cookie_path:
+        opts["cookiefile"] = cookie_path
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            downloaded_path = None
-
-            requested = info.get("requested_downloads") or []
-            if requested and requested[0].get("filepath"):
-                downloaded_path = Path(requested[0]["filepath"])
-            else:
-                downloaded_path = Path(ydl.prepare_filename(info))
-
-            if not downloaded_path.exists():
-                files = sorted(temp_dir.glob("*"))
-                if not files:
-                    raise FileNotFoundError("Downloaded file not found.")
-                downloaded_path = files[0]
-    except Exception as exc:
+            file_path = Path(ydl.prepare_filename(info))
+    except Exception as e:
         shutil.rmtree(temp_dir, ignore_errors=True)
-        return JsonResponse({"error": f"Download failed: {exc}"}, status=400)
+        return JsonResponse({"error": str(e)}, status=400)
 
-    content_type = mimetypes.guess_type(downloaded_path.name)[0] or "application/octet-stream"
     response = StreamingHttpResponse(
-        _stream_file_and_cleanup(downloaded_path, temp_dir),
-        content_type=content_type,
+        _stream_file_and_cleanup(file_path, temp_dir),
+        content_type=mimetypes.guess_type(file_path)[0] or "application/octet-stream"
     )
-    response["Content-Disposition"] = (
-        f"attachment; filename*=UTF-8''{quote(downloaded_path.name)}"
-    )
+
+    response["Content-Disposition"] = f"attachment; filename={quote(file_path.name)}"
     return response
