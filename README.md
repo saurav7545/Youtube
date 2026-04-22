@@ -13,21 +13,26 @@ A web application for downloading YouTube videos and audio files.
 
 To avoid YouTube's "Sign in to confirm you're not a bot" error, you need to configure authentication.
 
-### Quick Setup (Using Browser Cookies)
+### For Local Development (Using Browser Cookies)
 
 1. Navigate to the backend directory:
    ```bash
    cd backend/downloading
    ```
 
-2. Create a `.env` file and add:
-   ```env
-   YT_DL_BROWSER=chrome
-   ```
+2. The `.env` file already has `YT_DL_BROWSER=chrome` configured.
 
 3. Make sure you're logged into YouTube in your Chrome browser.
 
 4. Start the backend server.
+
+### For Production Deployment (Render, Vercel, etc.)
+
+**Important:** Browser cookies only work for local development. For production servers, you must use a cookies.txt file:
+
+1. Export cookies from your browser using a browser extension (see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md))
+2. Upload the `cookies.txt` file to your production server in the `backend/downloading/` directory
+3. Restart your production server
 
 For detailed authentication instructions, see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md).
 

@@ -8,7 +8,9 @@ YouTube blocks automated requests from yt-dlp to prevent bot activity. This guid
 
 The most reliable method is to extract cookies from your web browser, which provides YouTube with a real user session.
 
-### Method 1: Using Browser Cookies (Recommended)
+### Method 1: Using Browser Cookies (Local Development Only)
+
+**⚠️ IMPORTANT: This method only works for local development where a browser is running on the same machine as the server. For production servers (Render, Vercel, etc.), use Method 2 with cookies.txt file.**
 
 #### Step 1: Configure Environment Variables
 
@@ -45,7 +47,9 @@ Make sure your browser is running and you're logged into YouTube in that browser
 
 After setting the environment variables, restart your Django backend server.
 
-### Method 2: Using cookies.txt File
+### Method 2: Using cookies.txt File (Production Servers)
+
+**This is the recommended method for production deployments on Render, Vercel, Railway, etc.**
 
 If browser extraction doesn't work, you can manually export cookies:
 
@@ -73,7 +77,7 @@ Restart your Django backend server.
 
 ## Troubleshooting
 
-### Issue: Browser cookies not working
+### Issue: Browser cookies not working (Local Development)
 
 **Solution:**
 1. Make sure the browser is running when you start the Django server
@@ -88,6 +92,11 @@ Restart your Django backend server.
 - Check file permissions
 - Verify the file has content (not empty)
 
+### Issue: "_parse_browser_specification() takes from 1 to 4 positional arguments but 6 were given"
+
+**Solution:**
+This error occurs when yt-dlp receives an incorrect browser specification format. The code has been updated to handle this automatically.
+
 ### Issue: Still getting bot verification error
 
 **Solution:**
@@ -95,6 +104,15 @@ Restart your Django backend server.
 2. Clear browser cache and re-login to YouTube
 3. Use a VPN if you're in a restricted region
 4. Wait a few hours and try again (YouTube may temporarily block your IP)
+
+### Issue: Production deployment (Render, Vercel, etc.) not working
+
+**Solution:**
+Production servers don't have browsers running, so browser cookie extraction won't work. You must use the cookies.txt method:
+1. Export cookies from your browser locally
+2. Upload the `cookies.txt` file to your production server
+3. Place it in the `backend/downloading/` directory
+4. Restart your production server
 
 ## Platform-Specific Notes
 

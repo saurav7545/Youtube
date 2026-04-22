@@ -53,6 +53,9 @@ def get_browser_cookies():
     Extract cookies from browser to authenticate with YouTube.
     This solves the bot verification issue by using real browser session cookies.
     
+    Note: This only works for local development where a browser is running.
+    For production servers (Render, Vercel, etc.), use cookies.txt file instead.
+    
     Environment variables to configure:
     - YT_DL_BROWSER: Browser name (chrome, firefox, brave, edge, safari, chromium)
     - YT_DL_BROWSER_PROFILE: Browser profile name (optional, defaults to default profile)
@@ -75,10 +78,16 @@ def get_browser_cookies():
     
     profile = os.environ.get("YT_DL_BROWSER_PROFILE", "")
     
-    # Build cookies_from_browser parameter as a tuple
-    # yt-dlp expects: (browser_name, profile_path, keyring, container)
-    # We only provide browser_name and optionally profile
-    cookies_from_browser = (browser, profile) if profile else browser
+    # Check if we're in a headless/production environment
+    # Browser cookies only work when a browser is actually running
+    import sys
+    if not hasattr(sys, 'real_prefix') and not os.path.exists(os.path.expanduser("~")):
+        print("⚠️ No browser available in this environment. Use cookies.txt instead.")
+        return None
+    
+    # Build cookies_from_browser parameter
+    # yt-dlp expects a string in format: "browser[:profile][:keyring]"
+    cookies_from_browser = f"{browser}:{profile}" if profile else browser
     
     print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
     return cookies_from_browser
