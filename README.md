@@ -22,9 +22,18 @@ To avoid YouTube's "Sign in to confirm you're not a bot" error, you need to conf
 
 2. The `.env` file already has `YT_DL_BROWSER=chrome` configured.
 
-3. Make sure you're logged into YouTube in your Chrome browser.
+3. **Important**: Make sure you're logged into YouTube in your Chrome browser AND Chrome is running when you start the backend.
 
-4. Start the backend server.
+4. Start the backend server:
+   ```bash
+   python manage.py runserver
+   ```
+
+5. Check the console output - you should see messages like:
+   - `🔑 Using browser cookies from: chrome`
+   - `🔍 Debug: cookie_path=None, browser_cookies=chrome`
+
+If you don't see these messages or still get errors, try the manual cookies method below.
 
 ### For Production Deployment (Render, Vercel, etc.)
 
