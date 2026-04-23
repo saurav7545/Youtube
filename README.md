@@ -90,11 +90,23 @@ npm run dev
 
 ## Troubleshooting
 
-If you encounter "Sign in to confirm you're not a bot" error:
-
+### "Sign in to confirm you're not a bot" error:
 1. Set `YT_DL_BROWSER=chrome` in your backend `.env` file
 2. Make sure you're logged into YouTube in your browser
 3. Restart the backend server
+
+### "_parse_browser_specification() takes from 1 to 4 positional arguments" error:
+This error occurs due to a yt-dlp version compatibility issue. To fix:
+
+1. Stop the backend server
+2. Reinstall the correct yt-dlp version:
+   ```bash
+   cd backend/downloading
+   pip install -r requirements.txt --force-reinstall
+   ```
+3. Restart the backend server
+
+The project uses yt-dlp version 2024.12.23 which is stable and doesn't have this issue.
 
 See [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md) for more details.
 

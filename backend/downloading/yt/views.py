@@ -85,9 +85,13 @@ def get_browser_cookies():
         print("⚠️ No browser available in this environment. Use cookies.txt instead.")
         return None
     
-    # Build cookies_from_browser parameter
-    # yt-dlp expects a string in format: "browser[:profile][:keyring]"
-    cookies_from_browser = f"{browser}:{profile}" if profile else browser
+    # Build cookies_from_browser parameter as a string
+    # yt-dlp expects: "browser[:profile][:keyring_type][:migrate]"
+    # Only include profile if specified
+    if profile:
+        cookies_from_browser = f"{browser}:{profile}"
+    else:
+        cookies_from_browser = browser
     
     print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
     return cookies_from_browser
@@ -194,7 +198,21 @@ def info_view(request):
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=400)
+        error_msg = str(e)
+        # If browser cookie error, try without browser cookies as fallback
+        if "_parse_browser_specification" in error_msg and browser_cookies:
+            print(f"⚠️ Browser cookie error, retrying without browser cookies...")
+            opts.pop("cookiesfrombrowser", None)
+            # Try with cookies.txt if available
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+            except Exception as e2:
+                return JsonResponse({"error": str(e2)}, status=400)
+        else:
+            return JsonResponse({"error": error_msg}, status=400)
 
     vq, aq = _collect_qualities(info)
 
@@ -252,8 +270,24 @@ def download_view(request):
             info = ydl.extract_info(url, download=True)
             file_path = Path(ydl.prepare_filename(info))
     except Exception as e:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return JsonResponse({"error": str(e)}, status=400)
+        error_msg = str(e)
+        # If browser cookie error, try without browser cookies as fallback
+        if "_parse_browser_specification" in error_msg and browser_cookies:
+            print(f"⚠️ Browser cookie error, retrying without browser cookies...")
+            opts.pop("cookiesfrombrowser", None)
+            # Try with cookies.txt if available
+            if cookie_path:
+                opts["cookiefile"] = cookie_path
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    file_path = Path(ydl.prepare_filename(info))
+            except Exception as e2:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return JsonResponse({"error": str(e2)}, status=400)
+        else:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return JsonResponse({"error": error_msg}, status=400)
 
     response = StreamingHttpResponse(
         _stream_file_and_cleanup(file_path, temp_dir),
