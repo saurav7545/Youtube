@@ -37,11 +37,15 @@ If you don't see these messages or still get errors, try the manual cookies meth
 
 ### For Production Deployment (Render, Vercel, etc.)
 
-**Important:** Browser cookies only work for local development. For production servers, you must use a cookies.txt file:
+**Important:** On production servers, YouTube's bot detection is very strict. The application will try to work without cookies, but may fail for some videos.
+
+**For reliable downloads on production, you should use a cookies.txt file:**
 
 1. Export cookies from your browser using a browser extension (see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md))
 2. Upload the `cookies.txt` file to your production server in the `backend/downloading/` directory
 3. Restart your production server
+
+**Note:** Without cookies, some videos may fail to download due to YouTube's bot protection. The cookies.txt method is recommended for production use.
 
 For detailed authentication instructions, see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md).
 

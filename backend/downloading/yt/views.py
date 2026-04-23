@@ -187,12 +187,17 @@ def info_view(request):
         "no_warnings": False,
         "skip_download": True,
         "noplaylist": True,
-        "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-us,en;q=0.5",
+            "Sec-Fetch-Mode": "navigate",
+        },
     }
 
     print(f"🔍 Debug: cookie_path={cookie_path}, browser_cookies={browser_cookies}")
 
-    # Prefer browser cookies for YouTube (solves bot verification)
+    # Try with authentication if available
     if browser_cookies:
         opts["cookiesfrombrowser"] = browser_cookies
         print(f"🔑 Using browser cookies: {browser_cookies}")
@@ -200,7 +205,7 @@ def info_view(request):
         opts["cookiefile"] = cookie_path
         print(f"🍪 Using cookies file: {cookie_path}")
     else:
-        print("⚠️ No authentication method available!")
+        print("⚠️ No authentication method available - attempting without cookies")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -265,11 +270,17 @@ def download_view(request):
         "format": selector,
         "quiet": False,  # Enable output for debugging
         "no_warnings": False,
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-us,en;q=0.5",
+            "Sec-Fetch-Mode": "navigate",
+        },
     }
 
     print(f"🔍 Debug (download): cookie_path={cookie_path}, browser_cookies={browser_cookies}")
 
-    # Prefer browser cookies for YouTube (solves bot verification)
+    # Try with authentication if available
     if browser_cookies:
         opts["cookiesfrombrowser"] = browser_cookies
         print(f"🔑 Using browser cookies: {browser_cookies}")
@@ -277,7 +288,7 @@ def download_view(request):
         opts["cookiefile"] = cookie_path
         print(f"🍪 Using cookies file: {cookie_path}")
     else:
-        print("⚠️ No authentication method available!")
+        print("⚠️ No authentication method available - attempting without cookies")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
