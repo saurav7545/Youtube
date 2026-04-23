@@ -71,6 +71,7 @@ def get_browser_cookies():
             browser = "chrome"
         else:  # Linux
             browser = "chrome"
+        print(f"🔍 Auto-detected browser: {browser}")
     
     if browser not in SUPPORTED_BROWSERS:
         print(f"⚠️ Unsupported browser: {browser}. Supported: {SUPPORTED_BROWSERS}")
@@ -94,6 +95,7 @@ def get_browser_cookies():
         cookies_from_browser = browser
     
     print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
+    print(f"🔑 Full browser spec: {cookies_from_browser}")
     return cookies_from_browser
 
 
@@ -181,18 +183,24 @@ def info_view(request):
     browser_cookies = get_browser_cookies()
 
     opts = {
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,  # Enable output for debugging
+        "no_warnings": False,
         "skip_download": True,
         "noplaylist": True,
         "http_headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
     }
 
+    print(f"🔍 Debug: cookie_path={cookie_path}, browser_cookies={browser_cookies}")
+
     # Prefer browser cookies for YouTube (solves bot verification)
     if browser_cookies:
         opts["cookiesfrombrowser"] = browser_cookies
+        print(f"🔑 Using browser cookies: {browser_cookies}")
     elif cookie_path:
         opts["cookiefile"] = cookie_path
+        print(f"🍪 Using cookies file: {cookie_path}")
+    else:
+        print("⚠️ No authentication method available!")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -255,15 +263,21 @@ def download_view(request):
     opts = {
         "outtmpl": output,
         "format": selector,
-        "quiet": True,
-        "no_warnings": True,
+        "quiet": False,  # Enable output for debugging
+        "no_warnings": False,
     }
+
+    print(f"🔍 Debug (download): cookie_path={cookie_path}, browser_cookies={browser_cookies}")
 
     # Prefer browser cookies for YouTube (solves bot verification)
     if browser_cookies:
         opts["cookiesfrombrowser"] = browser_cookies
+        print(f"🔑 Using browser cookies: {browser_cookies}")
     elif cookie_path:
         opts["cookiefile"] = cookie_path
+        print(f"🍪 Using cookies file: {cookie_path}")
+    else:
+        print("⚠️ No authentication method available!")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
