@@ -339,6 +339,28 @@
   transform: translateY(-1px);
 }
 
+.download-secondary {
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid #79a6d6;
+  background: #eef6ff;
+  color: #1f4f7e;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.download-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.download-secondary:disabled {
+  opacity: 0.75;
+  cursor: wait;
+  transform: none;
+}
+
 .download-status {
   margin: 2px 0 0;
   padding: 10px 12px;
@@ -348,6 +370,37 @@
   font-size: clamp(13px, 2vw, 15px);
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.download-status.success {
+  background: rgba(193, 247, 219, 0.66);
+  color: #1f6645;
+}
+
+.download-status.error {
+  background: rgba(255, 216, 216, 0.82);
+  color: #7d1d1d;
+}
+
+.auth-help {
+  margin-top: 2px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #ffb3b3;
+  background: #fff1f1;
+}
+
+.auth-help-title {
+  margin: 0;
+  font-weight: 700;
+  color: #9f1e1e;
+}
+
+.auth-help-text {
+  margin: 6px 0 0;
+  color: #723434;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 @keyframes hueShift {
@@ -469,9 +522,38 @@
     background: linear-gradient(135deg, #119db9, #2a79de);
   }
 
+  .download-secondary {
+    border-color: #446086;
+    background: #1a2a42;
+    color: #cfe4ff;
+  }
+
   .download-status {
     background: rgba(23, 56, 74, 0.82);
     color: #c9edff;
+  }
+
+  .download-status.success {
+    background: rgba(21, 71, 55, 0.82);
+    color: #b9f3d5;
+  }
+
+  .download-status.error {
+    background: rgba(84, 31, 31, 0.9);
+    color: #ffd4d4;
+  }
+
+  .auth-help {
+    border-color: #8c4b4b;
+    background: #341f1f;
+  }
+
+  .auth-help-title {
+    color: #ffb3b3;
+  }
+
+  .auth-help-text {
+    color: #f0cccc;
   }
 }
 

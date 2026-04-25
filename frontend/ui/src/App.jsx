@@ -38,6 +38,7 @@ function Box() {
   const [audioQualities, setAudioQualities] = useState(QUALITY_OPTIONS.audio)
   const [status, setStatus] = useState('')
   const [isSearching, setIsSearching] = useState(false)
+  const [isPreparingLocal, setIsPreparingLocal] = useState(false)
 
   const qualityList = downloadType === 'video' ? videoQualities : audioQualities
 
@@ -112,6 +113,48 @@ function Box() {
 
     window.open(downloadEndpoint, '_blank', 'noopener')
     setStatus(`Starting ${downloadType} download in ${quality}...`)
+  }
+
+  const handleLocalHelper = async () => {
+    const cleanUrl = videoUrl.trim()
+    if (!videoId || !cleanUrl) {
+      setStatus('Paste link and click search first.')
+      return
+    }
+
+    setIsPreparingLocal(true)
+    setStatus('Preparing local helper payload...')
+
+    try {
+      const params = new URLSearchParams({
+        url: cleanUrl,
+        type: downloadType,
+        quality,
+      })
+      const response = await fetch(`${apiUrl('/api/yt/local-job')}?${params.toString()}`)
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(payload.error || 'Unable to prepare local payload.')
+      }
+
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      })
+      const objectUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = `${payload.payload?.videoId || 'yt'}-${downloadType}-payload.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(objectUrl)
+
+      setStatus('Local payload downloaded. Run local helper script with this file.')
+    } catch (error) {
+      setStatus(error.message || 'Failed to prepare local helper payload.')
+    } finally {
+      setIsPreparingLocal(false)
+    }
   }
 
   return (
@@ -189,6 +232,14 @@ function Box() {
                 onClick={handleDownload}
               >
                 Download
+              </button>
+              <button
+                type="button"
+                className="download-secondary"
+                onClick={handleLocalHelper}
+                disabled={isPreparingLocal}
+              >
+                {isPreparingLocal ? 'Preparing...' : 'Download via Local Helper'}
               </button>
             </div>
           </div>

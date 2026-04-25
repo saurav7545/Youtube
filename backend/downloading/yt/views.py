@@ -1,12 +1,17 @@
 import mimetypes
 import base64
+import hashlib
+import hmac
+import json
 import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import quote
 
+from django.conf import settings
 from django.http import JsonResponse, StreamingHttpResponse
 from django.views.decorators.http import require_GET
 
@@ -31,6 +36,7 @@ AUTH_REQUIRED_MARKERS = (
     "members-only",
     "private video",
 )
+SIGNED_PAYLOAD_TTL_SECONDS = 600
 
 
 # ✅ LOAD yt-dlp
@@ -221,6 +227,22 @@ def _selector_for(download_type: str, quality_value):
     )
 
 
+def _payload_signature(payload: dict, secret: str) -> str:
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hmac.new(
+        secret.encode("utf-8"),
+        serialized.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _local_helper_signing_secret() -> str:
+    return (
+        os.environ.get("YT_LOCAL_HELPER_SIGNING_KEY", "").strip()
+        or settings.SECRET_KEY
+    )
+
+
 def _collect_qualities(info: dict):
     formats = info.get("formats", [])
 
@@ -253,6 +275,43 @@ def _stream_file_and_cleanup(file_path: Path, temp_dir: Path):
 @require_GET
 def health_view(_):
     return JsonResponse({"ok": True})
+
+
+@require_GET
+def local_job_view(request):
+    url = request.GET.get("url", "").strip()
+    dtype = request.GET.get("type", "video").strip().lower()
+    quality = request.GET.get("quality", "").strip()
+
+    video_id = _extract_video_id(url)
+    if not YOUTUBE_ID_PATTERN.match(video_id):
+        return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
+
+    if dtype not in {"video", "audio"}:
+        return JsonResponse({"error": "Invalid download type"}, status=400)
+
+    qval = _parse_quality_value(quality, dtype)
+    selector = _selector_for(dtype, qval)
+
+    now = int(time.time())
+    payload = {
+        "url": url,
+        "type": dtype,
+        "quality": quality,
+        "format": selector,
+        "videoId": video_id,
+        "issuedAt": now,
+        "expiresAt": now + SIGNED_PAYLOAD_TTL_SECONDS,
+    }
+
+    signature = _payload_signature(payload, _local_helper_signing_secret())
+
+    return JsonResponse({
+        "payload": payload,
+        "signature": signature,
+        "algorithm": "HMAC-SHA256",
+        "ttlSeconds": SIGNED_PAYLOAD_TTL_SECONDS,
+    })
 
 
 # ✅ INFO API

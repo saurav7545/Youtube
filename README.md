@@ -96,6 +96,10 @@ npm run dev
 - `CORS_ALLOWED_ORIGINS` - CORS origins
 - `YT_DL_BROWSER` - Browser for cookie extraction (chrome, firefox, brave, edge, safari, chromium)
 - `YT_DL_BROWSER_PROFILE` - (Optional) Browser profile name
+- `YT_DL_COOKIES_B64` - (Recommended for Render) Base64-encoded cookies.txt content
+- `YT_DL_COOKIES_RAW` - Raw cookies.txt content in env var
+- `YT_DL_COOKIES_FILE` - Absolute path to cookies.txt file
+- `YT_LOCAL_HELPER_SIGNING_KEY` - Optional key for local helper payload signature verification
 
 ### Frontend (.env.local)
 
@@ -122,6 +126,21 @@ This error occurs due to a yt-dlp version compatibility issue. To fix:
 The project uses yt-dlp version 2024.12.23 which is stable and doesn't have this issue.
 
 See [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md) for more details.
+
+## Hybrid Local-Helper Mode
+
+Use this mode when cloud download fails due to YouTube bot checks:
+
+1. In the frontend, click `Download via Local Helper` after search.
+2. A signed payload JSON file will be downloaded.
+3. Run helper locally:
+   ```bash
+   cd backend/downloading
+   python local_helper.py --payload-file "<path-to-payload.json>" --cookies-from-browser chrome
+   ```
+4. Optional signature verification:
+   - set `YT_LOCAL_HELPER_SIGNING_KEY` in backend and locally for helper
+   - or pass `--signing-key "<same-key>"`.
 
 ## License
 
