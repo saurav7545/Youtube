@@ -1,4 +1,5 @@
 import mimetypes
+import base64
 import os
 import re
 import shutil
@@ -45,6 +46,29 @@ def _load_yt_dlp():
 def get_cookie_path():
     app_dir = Path(__file__).resolve().parent
     project_dir = app_dir.parent
+
+    # Highest priority: runtime cookie content from env (useful on Render).
+    cookie_content_b64 = os.environ.get("YT_DL_COOKIES_B64", "").strip()
+    if cookie_content_b64:
+        try:
+            decoded = base64.b64decode(cookie_content_b64).decode("utf-8")
+            temp_dir = Path(tempfile.mkdtemp())
+            temp_cookie = temp_dir / "cookies.txt"
+            temp_cookie.write_text(decoded, encoding="utf-8")
+            if temp_cookie.stat().st_size > 0:
+                print("🍪 Using cookies from YT_DL_COOKIES_B64")
+                return str(temp_cookie)
+        except Exception as e:
+            print(f"⚠️ Failed to decode YT_DL_COOKIES_B64: {e}")
+
+    cookie_content_raw = os.environ.get("YT_DL_COOKIES_RAW", "").strip()
+    if cookie_content_raw:
+        temp_dir = Path(tempfile.mkdtemp())
+        temp_cookie = temp_dir / "cookies.txt"
+        temp_cookie.write_text(cookie_content_raw, encoding="utf-8")
+        if temp_cookie.stat().st_size > 0:
+            print("🍪 Using cookies from YT_DL_COOKIES_RAW")
+            return str(temp_cookie)
 
     env_cookie_path = os.environ.get("YT_DL_COOKIES_FILE", "").strip()
     if env_cookie_path:
