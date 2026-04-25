@@ -15,6 +15,21 @@ DEFAULT_AUDIO_QUALITIES = ["64 kbps", "128 kbps", "192 kbps", "320 kbps"]
 
 # Supported browsers for cookie extraction
 SUPPORTED_BROWSERS = ["chrome", "firefox", "brave", "edge", "safari", "chromium"]
+BROWSER_COOKIE_MISSING_MARKERS = (
+    "could not find chrome cookies database",
+    "could not find firefox cookies database",
+    "could not find edge cookies database",
+    "could not find brave cookies database",
+    "could not find chromium cookies database",
+)
+AUTH_REQUIRED_MARKERS = (
+    "sign in to confirm you're not a bot",
+    "login required",
+    "this video is unavailable",
+    "age-restricted",
+    "members-only",
+    "private video",
+)
 
 
 # ✅ LOAD yt-dlp
@@ -73,16 +88,21 @@ def get_browser_cookies():
     - YT_DL_BROWSER_PROFILE: Browser profile name (optional, defaults to default profile)
     """
     browser = os.environ.get("YT_DL_BROWSER", "").lower().strip()
-    
+
+    # In hosted environments (Render, Railway, etc.) browser DBs are usually absent.
+    # Only attempt browser extraction there when explicitly configured.
+    is_hosted = bool(
+        os.environ.get("RENDER")
+        or os.environ.get("RAILWAY_ENVIRONMENT")
+        or os.environ.get("K_SERVICE")
+    )
+    if is_hosted and not browser:
+        print("⚠️ Hosted environment detected; skipping browser cookies. Use cookies.txt.")
+        return None
+
     if not browser:
-        # Try to auto-detect browser based on platform
-        import sys
-        if sys.platform == "darwin":  # macOS
-            browser = "chrome"
-        elif sys.platform == "win32":  # Windows
-            browser = "chrome"
-        else:  # Linux
-            browser = "chrome"
+        # Local default
+        browser = "chrome"
         print(f"🔍 Auto-detected browser: {browser}")
     
     if browser not in SUPPORTED_BROWSERS:
@@ -122,6 +142,29 @@ def _build_auth_opts():
         print("⚠️ No authentication method available - attempting without cookies")
 
     return auth_opts, browser_cookies, cookie_path
+
+
+def _is_browser_cookie_runtime_error(error_msg: str) -> bool:
+    text = (error_msg or "").lower()
+    if "_parse_browser_specification" in text:
+        return True
+    return any(marker in text for marker in BROWSER_COOKIE_MISSING_MARKERS)
+
+
+def _requires_authentication(error_msg: str) -> bool:
+    text = (error_msg or "").lower()
+    return any(marker in text for marker in AUTH_REQUIRED_MARKERS)
+
+
+def _auth_required_response(raw_error: str):
+    return JsonResponse({
+        "error": (
+            "This video needs YouTube authentication. "
+            "Please upload/use a valid cookies.txt and try again."
+        ),
+        "details": raw_error,
+        "requiresCookies": True,
+    }, status=400)
 
 
 def _extract_video_id(url: str) -> str:
@@ -201,12 +244,7 @@ def info_view(request):
     if not YOUTUBE_ID_PATTERN.match(video_id):
         return JsonResponse({"error": "Invalid YouTube URL"}, status=400)
 
-    # Try multiple authentication methods in order of preference:
-    # 1. Browser cookies (most reliable for YouTube)
-    # 2. cookies.txt file
-    auth_opts, browser_cookies, cookie_path = _build_auth_opts()
-
-    opts = {
+    base_opts = {
         "quiet": False,  # Enable output for debugging
         "no_warnings": False,
         "skip_download": True,
@@ -223,29 +261,47 @@ def info_view(request):
             "Sec-Fetch-Mode": "navigate",
         },
     }
-    opts.update(auth_opts)
-
+    auth_opts, browser_cookies, cookie_path = _build_auth_opts()
     print(f"🔍 Debug: cookie_path={cookie_path}, browser_cookies={browser_cookies}")
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        # First attempt without cookies. This works for many public videos.
+        with yt_dlp.YoutubeDL(base_opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        error_msg = str(e)
-        # If browser cookie error, try without browser cookies as fallback
-        if "_parse_browser_specification" in error_msg and browser_cookies:
-            print(f"⚠️ Browser cookie error, retrying without browser cookies...")
-            opts.pop("cookiesfrombrowser", None)
-            # Try with cookies.txt if available
-            if cookie_path:
-                opts["cookiefile"] = cookie_path
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-            except Exception as e2:
-                return JsonResponse({"error": str(e2)}, status=400)
-        else:
-            return JsonResponse({"error": error_msg}, status=400)
+        first_error = str(e)
+        if not _requires_authentication(first_error):
+            return JsonResponse({"error": first_error}, status=400)
+
+        # Fallback: retry with auth only when needed.
+        if not auth_opts:
+            return _auth_required_response(first_error)
+
+        print("⚠️ Auth likely required, retrying with cookies...")
+        auth_retry_opts = dict(base_opts)
+        auth_retry_opts.update(auth_opts)
+        try:
+            with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except Exception as e2:
+            second_error = str(e2)
+            if _is_browser_cookie_runtime_error(second_error) and browser_cookies:
+                print("⚠️ Browser cookie runtime error, retrying with cookie file/without browser cookies...")
+                auth_retry_opts.pop("cookiesfrombrowser", None)
+                if cookie_path:
+                    auth_retry_opts["cookiefile"] = cookie_path
+                try:
+                    with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                except Exception as e3:
+                    final_error = str(e3)
+                    if _requires_authentication(final_error):
+                        return _auth_required_response(final_error)
+                    return JsonResponse({"error": final_error}, status=400)
+            else:
+                if _requires_authentication(second_error):
+                    return _auth_required_response(second_error)
+                return JsonResponse({"error": second_error}, status=400)
 
     vq, aq = _collect_qualities(info)
 
@@ -279,12 +335,10 @@ def download_view(request):
     temp_dir = Path(tempfile.mkdtemp())
     output = str(temp_dir / "%(title)s.%(ext)s")
 
-    # Try multiple authentication methods in order of preference:
-    # 1. Browser cookies (most reliable for YouTube)
-    # 2. cookies.txt file
+    # Authentication options are used only as fallback.
     auth_opts, browser_cookies, cookie_path = _build_auth_opts()
 
-    opts = {
+    base_opts = {
         "outtmpl": output,
         "format": selector,
         "quiet": False,  # Enable output for debugging
@@ -301,33 +355,53 @@ def download_view(request):
             "Sec-Fetch-Mode": "navigate",
         },
     }
-    opts.update(auth_opts)
 
     print(f"🔍 Debug (download): cookie_path={cookie_path}, browser_cookies={browser_cookies}")
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
+        # First attempt without cookies for public videos.
+        with yt_dlp.YoutubeDL(base_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             file_path = Path(ydl.prepare_filename(info))
     except Exception as e:
-        error_msg = str(e)
-        # If browser cookie error, try without browser cookies as fallback
-        if "_parse_browser_specification" in error_msg and browser_cookies:
-            print(f"⚠️ Browser cookie error, retrying without browser cookies...")
-            opts.pop("cookiesfrombrowser", None)
-            # Try with cookies.txt if available
-            if cookie_path:
-                opts["cookiefile"] = cookie_path
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    file_path = Path(ydl.prepare_filename(info))
-            except Exception as e2:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return JsonResponse({"error": str(e2)}, status=400)
-        else:
+        first_error = str(e)
+        if not _requires_authentication(first_error):
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return JsonResponse({"error": error_msg}, status=400)
+            return JsonResponse({"error": first_error}, status=400)
+
+        if not auth_opts:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return _auth_required_response(first_error)
+
+        print("⚠️ Auth likely required for download, retrying with cookies...")
+        auth_retry_opts = dict(base_opts)
+        auth_retry_opts.update(auth_opts)
+        try:
+            with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                file_path = Path(ydl.prepare_filename(info))
+        except Exception as e2:
+            second_error = str(e2)
+            if _is_browser_cookie_runtime_error(second_error) and browser_cookies:
+                print("⚠️ Browser cookie runtime error, retrying with cookie file/without browser cookies...")
+                auth_retry_opts.pop("cookiesfrombrowser", None)
+                if cookie_path:
+                    auth_retry_opts["cookiefile"] = cookie_path
+                try:
+                    with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
+                        info = ydl.extract_info(url, download=True)
+                        file_path = Path(ydl.prepare_filename(info))
+                except Exception as e3:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    final_error = str(e3)
+                    if _requires_authentication(final_error):
+                        return _auth_required_response(final_error)
+                    return JsonResponse({"error": final_error}, status=400)
+            else:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                if _requires_authentication(second_error):
+                    return _auth_required_response(second_error)
+                return JsonResponse({"error": second_error}, status=400)
 
     response = StreamingHttpResponse(
         _stream_file_and_cleanup(file_path, temp_dir),
