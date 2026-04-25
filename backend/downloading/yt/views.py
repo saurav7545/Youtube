@@ -28,12 +28,24 @@ def _load_yt_dlp():
 
 # ✅ COOKIE PATH FIX (IMPORTANT)
 def get_cookie_path():
-    base_dir = Path(__file__).resolve().parent
-    original = base_dir / "cookies.txt"
+    app_dir = Path(__file__).resolve().parent
+    project_dir = app_dir.parent
+
+    env_cookie_path = os.environ.get("YT_DL_COOKIES_FILE", "").strip()
+    if env_cookie_path:
+        original = Path(env_cookie_path).expanduser()
+    else:
+        # Prefer project root path documented in README/AUTH guide.
+        original = project_dir / "cookies.txt"
 
     if not original.exists():
-        print("❌ cookies.txt NOT FOUND:", original)
-        return None
+        # Backward compatibility: older setups may have placed cookies in app dir.
+        legacy_path = app_dir / "cookies.txt"
+        if legacy_path.exists():
+            original = legacy_path
+        else:
+            print("❌ cookies.txt NOT FOUND:", original)
+            return None
 
     # Check if cookies.txt has content
     if original.stat().st_size == 0:
@@ -77,7 +89,7 @@ def get_browser_cookies():
         print(f"⚠️ Unsupported browser: {browser}. Supported: {SUPPORTED_BROWSERS}")
         return None
     
-    profile = os.environ.get("YT_DL_BROWSER_PROFILE", "")
+    profile = os.environ.get("YT_DL_BROWSER_PROFILE", "").strip()
     
     # Check if we're in a headless/production environment
     # Browser cookies only work when a browser is actually running
@@ -86,17 +98,30 @@ def get_browser_cookies():
         print("⚠️ No browser available in this environment. Use cookies.txt instead.")
         return None
     
-    # Build cookies_from_browser parameter as a string
-    # yt-dlp expects: "browser[:profile][:keyring_type][:migrate]"
-    # Only include profile if specified
-    if profile:
-        cookies_from_browser = f"{browser}:{profile}"
-    else:
-        cookies_from_browser = browser
+    # yt-dlp Python API expects a tuple for cookiesfrombrowser.
+    # Format: (browser, profile, keyring, container)
+    cookies_from_browser = (browser, profile or None, None, None)
     
     print(f"🔑 Using browser cookies from: {browser}" + (f" profile: {profile}" if profile else ""))
-    print(f"🔑 Full browser spec: {cookies_from_browser}")
     return cookies_from_browser
+
+
+def _build_auth_opts():
+    auth_opts = {}
+    browser_cookies = get_browser_cookies()
+    cookie_path = get_cookie_path()
+
+    # Browser cookies first, then static cookies file.
+    if browser_cookies:
+        auth_opts["cookiesfrombrowser"] = browser_cookies
+        print(f"🔑 Using browser cookies: {browser_cookies}")
+    elif cookie_path:
+        auth_opts["cookiefile"] = cookie_path
+        print(f"🍪 Using cookies file: {cookie_path}")
+    else:
+        print("⚠️ No authentication method available - attempting without cookies")
+
+    return auth_opts, browser_cookies, cookie_path
 
 
 def _extract_video_id(url: str) -> str:
@@ -179,14 +204,18 @@ def info_view(request):
     # Try multiple authentication methods in order of preference:
     # 1. Browser cookies (most reliable for YouTube)
     # 2. cookies.txt file
-    cookie_path = get_cookie_path()
-    browser_cookies = get_browser_cookies()
+    auth_opts, browser_cookies, cookie_path = _build_auth_opts()
 
     opts = {
         "quiet": False,  # Enable output for debugging
         "no_warnings": False,
         "skip_download": True,
         "noplaylist": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -194,18 +223,9 @@ def info_view(request):
             "Sec-Fetch-Mode": "navigate",
         },
     }
+    opts.update(auth_opts)
 
     print(f"🔍 Debug: cookie_path={cookie_path}, browser_cookies={browser_cookies}")
-
-    # Try with authentication if available
-    if browser_cookies:
-        opts["cookiesfrombrowser"] = browser_cookies
-        print(f"🔑 Using browser cookies: {browser_cookies}")
-    elif cookie_path:
-        opts["cookiefile"] = cookie_path
-        print(f"🍪 Using cookies file: {cookie_path}")
-    else:
-        print("⚠️ No authentication method available - attempting without cookies")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -262,14 +282,18 @@ def download_view(request):
     # Try multiple authentication methods in order of preference:
     # 1. Browser cookies (most reliable for YouTube)
     # 2. cookies.txt file
-    cookie_path = get_cookie_path()
-    browser_cookies = get_browser_cookies()
+    auth_opts, browser_cookies, cookie_path = _build_auth_opts()
 
     opts = {
         "outtmpl": output,
         "format": selector,
         "quiet": False,  # Enable output for debugging
         "no_warnings": False,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -277,18 +301,9 @@ def download_view(request):
             "Sec-Fetch-Mode": "navigate",
         },
     }
+    opts.update(auth_opts)
 
     print(f"🔍 Debug (download): cookie_path={cookie_path}, browser_cookies={browser_cookies}")
-
-    # Try with authentication if available
-    if browser_cookies:
-        opts["cookiesfrombrowser"] = browser_cookies
-        print(f"🔑 Using browser cookies: {browser_cookies}")
-    elif cookie_path:
-        opts["cookiefile"] = cookie_path
-        print(f"🍪 Using cookies file: {cookie_path}")
-    else:
-        print("⚠️ No authentication method available - attempting without cookies")
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
