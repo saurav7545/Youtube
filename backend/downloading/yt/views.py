@@ -27,9 +27,18 @@ BROWSER_COOKIE_MISSING_MARKERS = (
     "could not find edge cookies database",
     "could not find brave cookies database",
     "could not find chromium cookies database",
+    "could not copy chrome cookie database",
+    "could not copy firefox cookie database",
+    "failed to decrypt",
 )
 AUTH_REQUIRED_MARKERS = (
     "sign in to confirm you're not a bot",
+    "sign in to confirm youre not a bot",
+    "confirm you're not a bot",
+    "confirm youre not a bot",
+    "use --cookies-from-browser or --cookies for the authentication",
+    "--cookies-from-browser",
+    "--cookies for the authentication",
     "login required",
     "this video is unavailable",
     "age-restricted",
@@ -37,6 +46,8 @@ AUTH_REQUIRED_MARKERS = (
     "private video",
 )
 SIGNED_PAYLOAD_TTL_SECONDS = 600
+YT_DLP_COOKIE_HELP_URL = "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp"
+YT_DLP_COOKIE_EXPORT_URL = "https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"
 
 
 # ✅ LOAD yt-dlp
@@ -175,25 +186,48 @@ def _build_auth_opts():
 
 
 def _is_browser_cookie_runtime_error(error_msg: str) -> bool:
-    text = (error_msg or "").lower()
+    text = _normalize_error_text(error_msg)
     if "_parse_browser_specification" in text:
         return True
     return any(marker in text for marker in BROWSER_COOKIE_MISSING_MARKERS)
 
 
 def _requires_authentication(error_msg: str) -> bool:
-    text = (error_msg or "").lower()
+    text = _normalize_error_text(error_msg)
     return any(marker in text for marker in AUTH_REQUIRED_MARKERS)
 
 
-def _auth_required_response(raw_error: str):
+def _normalize_error_text(value: str) -> str:
+    text = (value or "").lower()
+    replacements = {
+        "’": "'",
+        "‘": "'",
+        "“": '"',
+        "”": '"',
+        "\u00a0": " ",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _auth_required_response(raw_error: str, browser_cookies=None, cookie_path=None):
     return JsonResponse({
         "error": (
-            "This video needs YouTube authentication. "
-            "Please upload/use a valid cookies.txt and try again."
+            "YouTube authentication is required for this video. "
+            "Set YT_DL_BROWSER (local) or provide YT_DL_COOKIES_B64/RAW/FILE, then retry."
         ),
         "details": raw_error,
         "requiresCookies": True,
+        "authContext": {
+            "browserConfigured": bool(browser_cookies),
+            "cookieFileConfigured": bool(cookie_path),
+        },
+        "cookieHints": [
+            "Local machine: set YT_DL_BROWSER=chrome (or firefox/brave/edge) and keep browser signed in to YouTube.",
+            "Hosted backend: provide cookies via YT_DL_COOKIES_B64, YT_DL_COOKIES_RAW, or YT_DL_COOKIES_FILE.",
+        ],
+        "docs": [YT_DLP_COOKIE_HELP_URL, YT_DLP_COOKIE_EXPORT_URL],
     }, status=400)
 
 
@@ -419,7 +453,7 @@ def info_view(request):
 
         # Fallback: retry with auth only when needed.
         if not auth_opts:
-            return _auth_required_response(first_error)
+            return _auth_required_response(first_error, browser_cookies, cookie_path)
 
         print("⚠️ Auth likely required, retrying with cookies...")
         auth_retry_opts = dict(base_opts)
@@ -440,11 +474,11 @@ def info_view(request):
                 except Exception as e3:
                     final_error = str(e3)
                     if _requires_authentication(final_error):
-                        return _auth_required_response(final_error)
+                        return _auth_required_response(final_error, browser_cookies, cookie_path)
                     return JsonResponse({"error": final_error}, status=400)
             else:
                 if _requires_authentication(second_error):
-                    return _auth_required_response(second_error)
+                    return _auth_required_response(second_error, browser_cookies, cookie_path)
                 return JsonResponse({"error": second_error}, status=400)
 
     can_merge_streams = _ffmpeg_available()
@@ -525,7 +559,7 @@ def download_view(request):
 
         if not auth_opts:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return _auth_required_response(first_error)
+            return _auth_required_response(first_error, browser_cookies, cookie_path)
 
         print("⚠️ Auth likely required for download, retrying with cookies...")
         auth_retry_opts = dict(base_opts)
@@ -549,12 +583,12 @@ def download_view(request):
                     shutil.rmtree(temp_dir, ignore_errors=True)
                     final_error = str(e3)
                     if _requires_authentication(final_error):
-                        return _auth_required_response(final_error)
+                        return _auth_required_response(final_error, browser_cookies, cookie_path)
                     return JsonResponse({"error": final_error}, status=400)
             else:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 if _requires_authentication(second_error):
-                    return _auth_required_response(second_error)
+                    return _auth_required_response(second_error, browser_cookies, cookie_path)
                 return JsonResponse({"error": second_error}, status=400)
 
     if not file_path:

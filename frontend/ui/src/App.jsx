@@ -63,6 +63,13 @@ const isAuthRequiredPayload = (payload = {}, fallbackMessage = '') => {
 const extractErrorMessage = (payload = {}, fallbackMessage = '') =>
   payload.error || payload.details || fallbackMessage
 
+const getDisplayErrorMessage = (error, fallbackMessage) => {
+  if (error instanceof TypeError) {
+    return 'Cannot reach API server. Check backend/proxy or VITE_API_BASE_URL in .env.local.'
+  }
+  return error?.message || fallbackMessage
+}
+
 const parseQualityRank = (quality, type) => {
   const match = quality?.trim().match(QUALITY_PATTERN[type])
   return match ? Number(match[1]) : null
@@ -192,7 +199,7 @@ function Box() {
       setVideoTitle('')
       setThumbnailUrl('')
       setStatusType('error')
-      const nextMessage = error.message || 'Failed to load thumbnail.'
+      const nextMessage = getDisplayErrorMessage(error, 'Failed to load thumbnail.')
       if (hasAuthErrorMarker(nextMessage)) {
         openAuthPopup(nextMessage)
       }
@@ -254,7 +261,10 @@ function Box() {
       setStatus(`Download started in ${quality}.`)
     } catch (error) {
       setStatusType('error')
-      const nextMessage = error.message || 'Download failed. Try another quality.'
+      const nextMessage = getDisplayErrorMessage(
+        error,
+        'Download failed. Try another quality.',
+      )
       if (hasAuthErrorMarker(nextMessage)) {
         openAuthPopup(nextMessage)
       }
@@ -368,9 +378,7 @@ function Box() {
           >
             <h3 id="auth-modal-title">Sign-in Required for This Video</h3>
             <p className="auth-modal-text">
-              YouTube authentication required hai. Cookies setup karo aur phir se try
-              karo.
-            </p>
+              this video downloading problem is due to backend api not working properly. please visit github repo for more information            </p>
             {authPopupDetails && <p className="auth-modal-details">{authPopupDetails}</p>}
             <div className="auth-modal-links">
               <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer">
