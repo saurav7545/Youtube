@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 
 function HomeText() {
@@ -26,6 +26,74 @@ const QUALITY_OPTIONS = {
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 const apiUrl = (path) => `${API_BASE_URL}${path}`
+const GITHUB_REPO_URL = 'https://github.com/saurav7545/Youtube'
+const API_NOTE_URL = `${GITHUB_REPO_URL}/blob/main/API_NOTE.md`
+const AUTH_ERROR_MARKERS = [
+  "sign in to confirm you're not a bot",
+  '--cookies-from-browser',
+  '--cookies',
+  'requirescookies',
+  'youtube authentication',
+  'cookies.txt',
+  'login required',
+]
+const QUALITY_PATTERN = {
+  video: /^(\d{3,4})p$/i,
+  audio: /^(\d{2,3})\s*kbps$/i,
+}
+
+const normalizeAuthText = (value = '') =>
+  value.toLowerCase().replaceAll('’', "'").replace(/\s+/g, ' ').trim()
+
+const hasAuthErrorMarker = (value = '') => {
+  const normalized = normalizeAuthText(value)
+  return AUTH_ERROR_MARKERS.some((marker) => normalized.includes(marker))
+}
+
+const isAuthRequiredPayload = (payload = {}, fallbackMessage = '') => {
+  if (payload.requiresCookies) {
+    return true
+  }
+
+  return hasAuthErrorMarker(
+    [payload.error, payload.details, fallbackMessage].filter(Boolean).join(' '),
+  )
+}
+
+const extractErrorMessage = (payload = {}, fallbackMessage = '') =>
+  payload.error || payload.details || fallbackMessage
+
+const parseQualityRank = (quality, type) => {
+  const match = quality?.trim().match(QUALITY_PATTERN[type])
+  return match ? Number(match[1]) : null
+}
+
+const normalizeQualityList = (values, type) => {
+  const fallback = QUALITY_OPTIONS[type]
+  const sorted = [...new Set((values || []).map((item) => item?.trim()).filter(Boolean))]
+    .filter((item) => QUALITY_PATTERN[type].test(item))
+    .sort((left, right) => {
+      const leftRank = parseQualityRank(left, type) ?? 0
+      const rightRank = parseQualityRank(right, type) ?? 0
+      return rightRank - leftRank
+    })
+
+  return sorted.length > 0 ? sorted : fallback
+}
+
+const getFilenameFromDisposition = (contentDisposition) => {
+  if (!contentDisposition) {
+    return ''
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].trim())
+  }
+
+  const simpleMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
+  return simpleMatch?.[1]?.trim() || ''
+}
 
 function Box() {
   const [videoUrl, setVideoUrl] = useState('')
@@ -37,10 +105,41 @@ function Box() {
   const [videoQualities, setVideoQualities] = useState(QUALITY_OPTIONS.video)
   const [audioQualities, setAudioQualities] = useState(QUALITY_OPTIONS.audio)
   const [status, setStatus] = useState('')
+  const [statusType, setStatusType] = useState('')
   const [isSearching, setIsSearching] = useState(false)
-  const [isPreparingLocal, setIsPreparingLocal] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [isAuthPopupOpen, setIsAuthPopupOpen] = useState(false)
+  const [authPopupDetails, setAuthPopupDetails] = useState('')
 
   const qualityList = downloadType === 'video' ? videoQualities : audioQualities
+
+  const openAuthPopup = (payloadOrMessage = {}) => {
+    if (typeof payloadOrMessage === 'string') {
+      setAuthPopupDetails(payloadOrMessage)
+    } else {
+      setAuthPopupDetails(payloadOrMessage.details || payloadOrMessage.error || '')
+    }
+    setIsAuthPopupOpen(true)
+  }
+
+  const closeAuthPopup = () => {
+    setIsAuthPopupOpen(false)
+  }
+
+  useEffect(() => {
+    if (!isAuthPopupOpen) {
+      return undefined
+    }
+
+    const handleEsc = (event) => {
+      if (event.key === 'Escape') {
+        setIsAuthPopupOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [isAuthPopupOpen])
 
   const handleTypeChange = (nextType) => {
     const nextQualityList = nextType === 'video' ? videoQualities : audioQualities
@@ -53,11 +152,13 @@ function Box() {
 
     const cleanUrl = videoUrl.trim()
     if (!cleanUrl) {
+      setStatusType('error')
       setStatus('Please paste a valid YouTube URL first.')
       return
     }
 
     setIsSearching(true)
+    setStatusType('')
     setStatus('Searching video details...')
 
     try {
@@ -67,17 +168,15 @@ function Box() {
       const payload = await response.json().catch(() => ({}))
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Unable to fetch video details.')
+        const fallbackMessage = 'Unable to fetch video details.'
+        if (isAuthRequiredPayload(payload, fallbackMessage)) {
+          openAuthPopup(payload)
+        }
+        throw new Error(extractErrorMessage(payload, fallbackMessage))
       }
 
-      const nextVideoQualities =
-        payload.videoQualities?.length > 0
-          ? payload.videoQualities
-          : QUALITY_OPTIONS.video
-      const nextAudioQualities =
-        payload.audioQualities?.length > 0
-          ? payload.audioQualities
-          : QUALITY_OPTIONS.audio
+      const nextVideoQualities = normalizeQualityList(payload.videoQualities, 'video')
+      const nextAudioQualities = normalizeQualityList(payload.audioQualities, 'audio')
 
       setVideoId(payload.videoId || '')
       setVideoTitle(payload.title || 'YouTube Video')
@@ -86,44 +185,34 @@ function Box() {
       setAudioQualities(nextAudioQualities)
       setDownloadType('video')
       setQuality(nextVideoQualities[0] || QUALITY_OPTIONS.video[0])
+      setStatusType('success')
       setStatus('Thumbnail loaded. Select format and quality.')
     } catch (error) {
       setVideoId('')
       setVideoTitle('')
       setThumbnailUrl('')
-      setStatus(error.message || 'Failed to load thumbnail.')
+      setStatusType('error')
+      const nextMessage = error.message || 'Failed to load thumbnail.'
+      if (hasAuthErrorMarker(nextMessage)) {
+        openAuthPopup(nextMessage)
+      }
+      setStatus(nextMessage)
     } finally {
       setIsSearching(false)
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     const cleanUrl = videoUrl.trim()
     if (!videoId || !cleanUrl) {
+      setStatusType('error')
       setStatus('Paste link and click search first.')
       return
     }
 
-    const params = new URLSearchParams({
-      url: cleanUrl,
-      type: downloadType,
-      quality,
-    })
-    const downloadEndpoint = `${apiUrl('/api/yt/download')}?${params.toString()}`
-
-    window.open(downloadEndpoint, '_blank', 'noopener')
-    setStatus(`Starting ${downloadType} download in ${quality}...`)
-  }
-
-  const handleLocalHelper = async () => {
-    const cleanUrl = videoUrl.trim()
-    if (!videoId || !cleanUrl) {
-      setStatus('Paste link and click search first.')
-      return
-    }
-
-    setIsPreparingLocal(true)
-    setStatus('Preparing local helper payload...')
+    setIsDownloading(true)
+    setStatusType('')
+    setStatus(`Preparing ${downloadType} download in ${quality}...`)
 
     try {
       const params = new URLSearchParams({
@@ -131,29 +220,47 @@ function Box() {
         type: downloadType,
         quality,
       })
-      const response = await fetch(`${apiUrl('/api/yt/local-job')}?${params.toString()}`)
-      const payload = await response.json().catch(() => ({}))
+      const response = await fetch(`${apiUrl('/api/yt/download')}?${params.toString()}`)
+
       if (!response.ok) {
-        throw new Error(payload.error || 'Unable to prepare local payload.')
+        const payload = await response.json().catch(() => ({}))
+        const fallbackMessage = 'Unable to download file.'
+        if (isAuthRequiredPayload(payload, fallbackMessage)) {
+          openAuthPopup(payload)
+        }
+        throw new Error(extractErrorMessage(payload, fallbackMessage))
       }
 
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json',
-      })
+      const blob = await response.blob()
+      if (blob.size === 0) {
+        throw new Error('The downloaded file is empty. Please try another quality.')
+      }
+
+      const contentDisposition = response.headers.get('content-disposition')
+      const filename =
+        getFilenameFromDisposition(contentDisposition) ||
+        `${videoId}-${downloadType}-${quality.replace(/\s+/g, '').toLowerCase()}`
+
       const objectUrl = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = objectUrl
-      link.download = `${payload.payload?.videoId || 'yt'}-${downloadType}-payload.json`
+      link.download = filename
       document.body.appendChild(link)
       link.click()
       link.remove()
       window.URL.revokeObjectURL(objectUrl)
 
-      setStatus('Local payload downloaded. Run local helper script with this file.')
+      setStatusType('success')
+      setStatus(`Download started in ${quality}.`)
     } catch (error) {
-      setStatus(error.message || 'Failed to prepare local helper payload.')
+      setStatusType('error')
+      const nextMessage = error.message || 'Download failed. Try another quality.'
+      if (hasAuthErrorMarker(nextMessage)) {
+        openAuthPopup(nextMessage)
+      }
+      setStatus(nextMessage)
     } finally {
-      setIsPreparingLocal(false)
+      setIsDownloading(false)
     }
   }
 
@@ -230,25 +337,55 @@ function Box() {
                 type="button"
                 className="download-primary"
                 onClick={handleDownload}
+                disabled={isDownloading}
               >
-                Download
-              </button>
-              <button
-                type="button"
-                className="download-secondary"
-                onClick={handleLocalHelper}
-                disabled={isPreparingLocal}
-              >
-                {isPreparingLocal ? 'Preparing...' : 'Download via Local Helper'}
+                {isDownloading ? 'Downloading...' : 'Download now'}
               </button>
             </div>
           </div>
         )}
 
-        <p className="download-status" aria-live="polite">
+        <p
+          className={`download-status${statusType ? ` ${statusType}` : ''}`}
+          aria-live="polite"
+        >
           {status || 'Paste a YouTube link and click search.'}
         </p>
       </form>
+
+      {isAuthPopupOpen && (
+        <div
+          className="auth-modal-backdrop"
+          role="presentation"
+          onClick={closeAuthPopup}
+        >
+          <div
+            className="auth-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="auth-modal-title">Sign-in Required for This Video</h3>
+            <p className="auth-modal-text">
+              YouTube authentication required hai. Cookies setup karo aur phir se try
+              karo.
+            </p>
+            {authPopupDetails && <p className="auth-modal-details">{authPopupDetails}</p>}
+            <div className="auth-modal-links">
+              <a href={GITHUB_REPO_URL} target="_blank" rel="noreferrer">
+                Open GitHub Repo
+              </a>
+              <a href={API_NOTE_URL} target="_blank" rel="noreferrer">
+                Open api.md (API_NOTE.md)
+              </a>
+            </div>
+            <button type="button" className="auth-modal-close" onClick={closeAuthPopup}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
