@@ -212,18 +212,30 @@ def _parse_quality_value(quality: str, download_type: str):
 
 
 def _selector_for(download_type: str, quality_value):
+    return _selector_for_with_merge(download_type, quality_value, can_merge_streams=True)
+
+
+def _selector_for_with_merge(download_type: str, quality_value, can_merge_streams: bool):
     if download_type == "audio":
         return (
             f"bestaudio[abr<={quality_value}]/bestaudio/best"
             if quality_value else "bestaudio/best"
         )
 
-    if quality_value is None:
-        return "bestvideo+bestaudio/best"
+    if can_merge_streams:
+        if quality_value is None:
+            return "bestvideo+bestaudio/best"
+        return (
+            f"bestvideo[height<={quality_value}]+bestaudio/"
+            f"best[height<={quality_value}]"
+        )
 
+    # Fallback for environments without ffmpeg: prefer pre-muxed video+audio.
+    if quality_value is None:
+        return "best[vcodec!=none][acodec!=none]/best"
     return (
-        f"bestvideo[height<={quality_value}]+bestaudio/"
-        f"best[height<={quality_value}]"
+        f"best[height<={quality_value}][vcodec!=none][acodec!=none]/"
+        "best[vcodec!=none][acodec!=none]/best"
     )
 
 
@@ -243,12 +255,16 @@ def _local_helper_signing_secret() -> str:
     )
 
 
-def _collect_qualities(info: dict):
+def _collect_qualities(info: dict, include_video_only: bool = True):
     formats = info.get("formats", [])
 
     video_vals = sorted({
         int(f["height"]) for f in formats
-        if f.get("vcodec") != "none" and f.get("height")
+        if (
+            f.get("vcodec") != "none"
+            and f.get("height")
+            and (include_video_only or f.get("acodec") != "none")
+        )
     })
 
     audio_vals = sorted({
@@ -260,6 +276,51 @@ def _collect_qualities(info: dict):
         [f"{v}p" for v in video_vals] or DEFAULT_VIDEO_QUALITIES,
         [f"{a} kbps" for a in audio_vals] or DEFAULT_AUDIO_QUALITIES,
     )
+
+
+def _ffmpeg_available() -> bool:
+    return bool(shutil.which("ffmpeg"))
+
+
+def _resolve_downloaded_file(info: dict, ydl, temp_dir: Path):
+    candidates = []
+
+    def _add_candidate(path_value):
+        if not path_value:
+            return
+        candidate = Path(path_value)
+        if not candidate.is_absolute():
+            candidate = temp_dir / candidate
+        candidates.append(candidate)
+
+    _add_candidate(info.get("filepath"))
+    _add_candidate(info.get("_filename"))
+
+    for item in info.get("requested_downloads") or []:
+        if isinstance(item, dict):
+            _add_candidate(item.get("filepath"))
+            _add_candidate(item.get("_filename"))
+
+    for item in info.get("requested_formats") or []:
+        if isinstance(item, dict):
+            _add_candidate(item.get("filepath"))
+            _add_candidate(item.get("_filename"))
+
+    try:
+        _add_candidate(ydl.prepare_filename(info))
+    except Exception:
+        pass
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_file():
+            return candidate
+
+    fallback_files = sorted(
+        [path for path in temp_dir.iterdir() if path.is_file()],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return fallback_files[0] if fallback_files else None
 
 
 def _stream_file_and_cleanup(file_path: Path, temp_dir: Path):
@@ -386,7 +447,8 @@ def info_view(request):
                     return _auth_required_response(second_error)
                 return JsonResponse({"error": second_error}, status=400)
 
-    vq, aq = _collect_qualities(info)
+    can_merge_streams = _ffmpeg_available()
+    vq, aq = _collect_qualities(info, include_video_only=can_merge_streams)
 
     return JsonResponse({
         "videoId": video_id,
@@ -394,6 +456,7 @@ def info_view(request):
         "thumbnail": info.get("thumbnail"),
         "videoQualities": vq,
         "audioQualities": aq,
+        "videoMergeAvailable": can_merge_streams,
     })
 
 
@@ -405,15 +468,23 @@ def download_view(request):
         return JsonResponse({"error": "yt-dlp not installed"}, status=500)
 
     url = request.GET.get("url", "").strip()
-    dtype = request.GET.get("type", "video")
-    quality = request.GET.get("quality", "")
+    dtype = request.GET.get("type", "video").strip().lower()
+    quality = request.GET.get("quality", "").strip()
 
     video_id = _extract_video_id(url)
     if not YOUTUBE_ID_PATTERN.match(video_id):
         return JsonResponse({"error": "Invalid URL"}, status=400)
 
+    if dtype not in {"video", "audio"}:
+        return JsonResponse({"error": "Invalid download type"}, status=400)
+
     qval = _parse_quality_value(quality, dtype)
-    selector = _selector_for(dtype, qval)
+    can_merge_streams = _ffmpeg_available()
+    selector = _selector_for_with_merge(
+        dtype,
+        qval,
+        can_merge_streams=can_merge_streams,
+    )
 
     temp_dir = Path(tempfile.mkdtemp())
     output = str(temp_dir / "%(title)s.%(ext)s")
@@ -445,7 +516,7 @@ def download_view(request):
         # First attempt without cookies for public videos.
         with yt_dlp.YoutubeDL(base_opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            file_path = Path(ydl.prepare_filename(info))
+            file_path = _resolve_downloaded_file(info, ydl, temp_dir)
     except Exception as e:
         first_error = str(e)
         if not _requires_authentication(first_error):
@@ -462,7 +533,7 @@ def download_view(request):
         try:
             with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                file_path = Path(ydl.prepare_filename(info))
+                file_path = _resolve_downloaded_file(info, ydl, temp_dir)
         except Exception as e2:
             second_error = str(e2)
             if _is_browser_cookie_runtime_error(second_error) and browser_cookies:
@@ -473,7 +544,7 @@ def download_view(request):
                 try:
                     with yt_dlp.YoutubeDL(auth_retry_opts) as ydl:
                         info = ydl.extract_info(url, download=True)
-                        file_path = Path(ydl.prepare_filename(info))
+                        file_path = _resolve_downloaded_file(info, ydl, temp_dir)
                 except Exception as e3:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                     final_error = str(e3)
@@ -485,6 +556,13 @@ def download_view(request):
                 if _requires_authentication(second_error):
                     return _auth_required_response(second_error)
                 return JsonResponse({"error": second_error}, status=400)
+
+    if not file_path:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return JsonResponse(
+            {"error": "Download completed but output file could not be located."},
+            status=500,
+        )
 
     response = StreamingHttpResponse(
         _stream_file_and_cleanup(file_path, temp_dir),

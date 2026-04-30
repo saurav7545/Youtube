@@ -1,146 +1,142 @@
-# Youtube
+﻿# YouTube Downloader (React + Django)
 
-A web application for downloading YouTube videos and audio files.
+A full-stack YouTube downloader with:
+- React (Vite) frontend for URL input, thumbnail preview, format selection, and download.
+- Django backend using `yt-dlp` for metadata extraction and media download streaming.
 
-## Features
+## Highlights
 
-- Download YouTube videos in various qualities (144p to 1080p)
-- Download YouTube audio in various bitrates (64 kbps to 320 kbps)
-- Clean and modern UI
-- CORS-enabled backend
+- Supports video and audio downloads.
+- Dynamic quality options from YouTube format data.
+- Direct file download from browser (via backend streaming endpoint).
+- Cookie-based authentication support for videos that require sign-in.
+- Fallback video strategy when `ffmpeg` is not available on the server.
+- Optional signed local-helper payload API (`/api/yt/local-job`) for advanced integrations.
 
-## Authentication Setup (Important!)
+## Screenshots
 
-To avoid YouTube's "Sign in to confirm you're not a bot" error, you need to configure authentication.
+![YouTube Downloader Main Interface](./Public_image/image1.png)
 
-### For Local Development (Using Browser Cookies)
+*Figure 1: Main download workflow*
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend/downloading
-   ```
+![YouTube Downloader Quality Selection](./Public_image/image2.png)
 
-2. The `.env` file already has `YT_DL_BROWSER=chrome` configured.
+*Figure 2: Format and quality selection*
 
-3. **Important**: Make sure you're logged into YouTube in your Chrome browser AND Chrome is running when you start the backend.
+## Tech Stack
 
-4. Start the backend server:
-   ```bash
-   python manage.py runserver
-   ```
+- Frontend: React 19, Vite 8
+- Backend: Django 5.2, yt-dlp
+- Python dependencies: `django-cors-headers`, `gunicorn`
 
-5. Check the console output - you should see messages like:
-   - `🔑 Using browser cookies from: chrome`
-   - `🔍 Debug: cookie_path=None, browser_cookies=chrome`
+## Repository Structure
 
-If you don't see these messages or still get errors, try the manual cookies method below.
-
-### For Production Deployment (Render, Vercel, etc.)
-
-**Important:** On production servers, YouTube's bot detection is very strict. The application will try to work without cookies, but may fail for some videos.
-
-**For reliable downloads on production, you should use a cookies.txt file:**
-
-1. Export cookies from your browser using a browser extension (see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md))
-2. Upload the `cookies.txt` file to your production server in the `backend/downloading/` directory
-3. Restart your production server
-
-**Note:** Without cookies, some videos may fail to download due to YouTube's bot protection. The cookies.txt method is recommended for production use.
-
-For detailed authentication instructions, see [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md).
-
-## Project Structure
-
-```
+```text
 Youtube/
-├── backend/
-│   └── downloading/
-│       ├── yt/              # Django app for YouTube downloader
-│       ├── downloading/     # Django project settings
-│       ├── manage.py        # Django management script
-│       ├── requirements.txt # Python dependencies
-│       ├── cookies.txt      # (Optional) Manual cookies file
-│       └── .env             # Environment configuration
-└── frontend/
-    └── ui/                  # React frontend (Vite)
+  backend/
+    downloading/
+      downloading/          Django project settings and root URLs
+      yt/                   YouTube API app (health, info, download, local-job)
+      local_helper.py       Optional CLI helper for signed payload execution
+      requirements.txt
+  frontend/
+    ui/
+      src/                  React application
+      vite.config.js
+      package.json
 ```
 
-## Installation
+## Prerequisites
 
-### Backend
+- Node.js 18+ and npm
+- Python 3.10+
+- `ffmpeg` (recommended for best video quality merging)
+
+## Local Setup
+
+### 1) Backend (Django)
 
 ```bash
 cd backend/downloading
+python -m venv .venv
+# Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# macOS/Linux:
+# source .venv/bin/activate
+
 pip install -r requirements.txt
-cp .env.example .env
-# Edit .env and configure YT_DL_BROWSER
-python manage.py runserver
+copy .env.example .env
+# macOS/Linux: cp .env.example .env
+
+python manage.py migrate
+python manage.py runserver 127.0.0.1:8000
 ```
 
-### Frontend
+### 2) Frontend (Vite)
 
 ```bash
 cd frontend/ui
 npm install
-cp .env.example .env.local
-# Edit .env.local if needed
+copy .env.example .env.local
+# macOS/Linux: cp .env.example .env.local
+
 npm run dev
 ```
 
+Frontend default URL: `http://localhost:5173`  
+Backend default URL: `http://127.0.0.1:8000`
+
 ## Environment Variables
 
-### Backend (.env)
+### Backend (`backend/downloading/.env`)
 
-- `DJANGO_DEBUG` - Debug mode
-- `DJANGO_ALLOWED_HOSTS` - Allowed hosts
-- `CORS_ALLOWED_ORIGINS` - CORS origins
-- `YT_DL_BROWSER` - Browser for cookie extraction (chrome, firefox, brave, edge, safari, chromium)
-- `YT_DL_BROWSER_PROFILE` - (Optional) Browser profile name
-- `YT_DL_COOKIES_B64` - (Recommended for Render) Base64-encoded cookies.txt content
-- `YT_DL_COOKIES_RAW` - Raw cookies.txt content in env var
-- `YT_DL_COOKIES_FILE` - Absolute path to cookies.txt file
-- `YT_LOCAL_HELPER_SIGNING_KEY` - Optional key for local helper payload signature verification
+- `DJANGO_DEBUG`: `true` or `false`
+- `DJANGO_SECRET_KEY`: Django secret key
+- `DJANGO_ALLOWED_HOSTS`: Comma-separated host list
+- `CORS_ALLOWED_ORIGINS`: Comma-separated origins
+- `CORS_ALLOWED_ORIGIN_REGEXES`: Comma-separated regex patterns
+- `CSRF_TRUSTED_ORIGINS`: Comma-separated trusted origins
+- `YT_DL_BROWSER`: Browser name for cookie extraction (`chrome`, `firefox`, `brave`, `edge`, `safari`, `chromium`)
+- `YT_DL_BROWSER_PROFILE`: Optional browser profile name
+- `YT_DL_COOKIES_B64`: Base64-encoded `cookies.txt` content
+- `YT_DL_COOKIES_RAW`: Raw `cookies.txt` content
+- `YT_DL_COOKIES_FILE`: Absolute path to `cookies.txt`
+- `YT_LOCAL_HELPER_SIGNING_KEY`: Optional signing key for local-helper payloads
 
-### Frontend (.env.local)
+### Frontend (`frontend/ui/.env.local`)
 
-- Configure API endpoint URL if needed
+- `VITE_API_BASE_URL`: Backend base URL (example: `http://127.0.0.1:8000`)
 
-## Troubleshooting
+## API Overview
 
-### "Sign in to confirm you're not a bot" error:
-1. Set `YT_DL_BROWSER=chrome` in your backend `.env` file
-2. Make sure you're logged into YouTube in your browser
-3. Restart the backend server
+Base path: `/api/yt`
 
-### "_parse_browser_specification() takes from 1 to 4 positional arguments" error:
-This error occurs due to a yt-dlp version compatibility issue. To fix:
+- `GET /health` -> service health
+- `GET /info?url=<youtube-url>` -> metadata + available qualities
+- `GET /download?url=<youtube-url>&type=video|audio&quality=<value>` -> file stream download
+- `GET /local-job?...` -> signed payload for local helper usage
 
-1. Stop the backend server
-2. Reinstall the correct yt-dlp version:
-   ```bash
-   cd backend/downloading
-   pip install -r requirements.txt --force-reinstall
-   ```
-3. Restart the backend server
+A short API quick-reference is available in [API_NOTE.md](API_NOTE.md).
 
-The project uses yt-dlp version 2024.12.23 which is stable and doesn't have this issue.
+## Authentication and Bot-Check Handling
 
-See [AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md) for more details.
+Some videos require authentication and may return errors like "Sign in to confirm you're not a bot".
 
-## Hybrid Local-Helper Mode
+Recommended approach:
+- Local development: browser cookie extraction (`YT_DL_BROWSER=chrome`, etc.)
+- Production: provide a valid `cookies.txt` using `YT_DL_COOKIES_B64`, `YT_DL_COOKIES_RAW`, or `YT_DL_COOKIES_FILE`
 
-Use this mode when cloud download fails due to YouTube bot checks:
+Detailed guide: [backend/downloading/AUTHENTICATION_GUIDE.md](backend/downloading/AUTHENTICATION_GUIDE.md)
 
-1. In the frontend, click `Download via Local Helper` after search.
-2. A signed payload JSON file will be downloaded.
-3. Run helper locally:
-   ```bash
-   cd backend/downloading
-   python local_helper.py --payload-file "<path-to-payload.json>" --cookies-from-browser chrome
-   ```
-4. Optional signature verification:
-   - set `YT_LOCAL_HELPER_SIGNING_KEY` in backend and locally for helper
-   - or pass `--signing-key "<same-key>"`.
+## Deployment Notes
+
+- You can deploy frontend and backend as separate projects (see [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md)).
+- Long-running video downloads may exceed serverless execution limits on some platforms.
+- For heavy download traffic, a VM/VPS backend is more reliable.
+
+## Legal and Usage Notice
+
+Use this project only for content you are authorized to download and in compliance with local laws and platform terms.
 
 ## License
 
